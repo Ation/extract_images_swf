@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 
 from subprocess import Popen, PIPE, call
 
@@ -15,6 +16,10 @@ def check_command( command ):
 
     return result
 
+def create_directory_if_not_exists( dir_name ):
+    if not os.path.exists( dir_name ):
+        os.makedirs( dir_name )
+
 class SWFExtractor:
     def __init__(self):
         self.tool_name='swfextract.exe'
@@ -27,7 +32,17 @@ class SWFExtractor:
         return True
 
     def get_ids(self, ids):
-        return []
+        id_list = [ int( x.group() ) for x in re.finditer(r' \d+(?=[,x])', ids) ]
+        range_id = [ x.group() for x in re.finditer(r'\d+-\d+', ids) ]
+
+        for _range in range_id:
+            start, end = [ int( x.group() ) for x in re.finditer(r'\d+', _range) ]
+            end = end + 1
+            id_list.extend(range(start,end))
+
+        id_list.sort()
+
+        return id_list
 
     def get_images( self, package):
         command = [ self.tool_name, package]
@@ -42,15 +57,38 @@ class SWFExtractor:
         err = None
 
         for str in out_strings:
-            if str.startswith('[-j]'):
-                jpgs = get_ids(str)
-            elif str.startswith('[-p]'):
-                pngs = get_ids(str)
+            if str.startswith(' [-j]'):
+                print( 'gettings JPG')
+                jpgs = self.get_ids(str)
+            elif str.startswith(' [-p]'):
+                print( 'gettings PNG')
+                pngs = self.get_ids(str)
 
         if (len(jpgs) == 0) and ( len(pngs) == 0):
             err = 'There are no images in SWF file'
 
         return jpgs, pngs, err
+
+    def extract_jpg(self, swf_file, path, id):
+        file_name = os.path.join(path, id+'.jpg')
+
+        command = [self.tool_name, '-j', id, '-o', file_name, swf_file]
+        p = Popen( command, stderr = PIPE, stdout = PIPE)
+        out, err = p.communicate()
+
+        if err:
+            print( err )
+
+    def extract_png(self, swf_file, path, id):
+        file_name = os.path.join(path, id+'.png')
+
+        command = [self.tool_name, '-p', id, '-o', file_name, swf_file]
+        p = Popen( command, stderr = PIPE, stdout = PIPE)
+        out, err = p.communicate()
+
+        if err:
+            print( err )
+
 
     def extract_images(self, package, out_path=None):
         if not self.is_available:
@@ -70,9 +108,21 @@ class SWFExtractor:
             print( err )
             return False
 
-        return True
+        if len(jpg_list) != 0:
+            jpg_path = os.path.join(out_path,'JPG')
+            create_directory_if_not_exists(jpg_path)
 
-    def
+            for id in jpg_list:
+                self.extract_jpg(package, jpg_path, str(id))
+
+        if len(png_list) != 0:
+            png_path = os.path.join(out_path,'PNG')
+            create_directory_if_not_exists(png_path)
+
+            for id in png_list:
+                self.extract_png(package, png_path, str(id))
+
+        return True
 
 def extract_images_from_swf(package, out_path=None):
     extractor = SWFExtractor()
@@ -98,4 +148,4 @@ if __name__ == '__main__':
         if args == 2:
             extract_images_from_swf( sys.argv[1] )
         else:
-            extract_images_from_swf( sys.argv[1], sys.args[2] )
+            extract_images_from_swf( sys.argv[1], sys.argv[2] )
